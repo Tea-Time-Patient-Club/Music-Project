@@ -1,0 +1,185 @@
+Unity ML Agents Pseudocode for level of difficulty recommendation system. 
+
+# Imports and Class Definitions
+using Unity.MLAgents;
+using Unity.MLAgents.Sensors;
+using Unity.MLAgents.Actuators;
+using UnityEngine;
+
+# DifficultyAgent Class
+public class DifficultyAgent : Agent
+{
+    public RhythmGameManager gameManager;
+    public AudioAnalysisLoader audioAnalysisLoader;
+    public RhythmGameNoteGenerator noteGenerator;
+
+    private float currentDifficulty;
+
+# OnEpisodeBegin Method
+public override void OnEpisodeBegin()
+{
+    // Reset the game state, load a new song, etc.
+    gameManager.LoadRandomSong();
+    currentDifficulty = 1f; // Start at medium difficulty
+}
+
+# CollectObservations Method
+public override void CollectObservations(VectorSensor sensor)
+{
+    // Collect relevant features about the current level
+    var audioAnalysis = audioAnalysisLoader.GetAudioAnalysis();
+    var notes = noteGenerator.GetNotes();
+
+    sensor.AddObservation(audioAnalysis.tempo);
+    sensor.AddObservation(notes.Count / audioAnalysis.duration); // Note density
+    sensor.AddObservation(CountDoubleTaps(notes));
+    sensor.AddObservation(CountNoteTypes(notes, "hold"));
+    sensor.AddObservation(CountNoteTypes(notes, "swipe"));
+    sensor.AddObservation(CalculateRhythmComplexity(notes, audioAnalysis.beatTimes));
+    sensor.AddObservation(currentDifficulty);
+}
+
+# OnActionReceived Method
+public override void OnActionReceived(ActionBuffers actionBuffers)
+{
+    // Interpret the agent's action as a difficulty adjustment
+    float difficultyAdjustment = actionBuffers.ContinuousActions[0];
+    currentDifficulty = Mathf.Clamp(currentDifficulty + difficultyAdjustment, 0f, 2f);
+
+    // Apply the new difficulty
+    gameManager.SetDifficulty(currentDifficulty);
+
+    // Simulate player performance
+    float playerPerformance = gameManager.SimulatePlayerPerformance();
+
+    // Calculate reward based on how well the difficulty matches the player's skill level
+    float reward = CalculateReward(playerPerformance);
+    AddReward(reward);
+
+    if (gameManager.IsLevelComplete())
+    {
+        EndEpisode();
+    }
+}
+
+# Heuristic Method
+public override void Heuristic(in ActionBuffers actionsOut)
+{
+    // Optional: Implement this for manual control during testing
+    var continuousActionsOut = actionsOut.ContinuousActions;
+    continuousActionsOut[0] = Input.GetAxis("Vertical");
+}
+
+# CalculateReward Method
+private float CalculateReward(float playerPerformance)
+{
+    // Reward the agent for setting a difficulty that challenges the player without frustrating them
+    float optimalPerformance = 0.75f; // Assuming 75% is the ideal performance
+    return 1f - Mathf.Abs(playerPerformance - optimalPerformance);
+}
+---
+behaviors:
+  DifficultyAgent:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 64
+      buffer_size: 12000
+      learning_rate: 3.0e-4
+      beta: 5.0e-3
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+    network_settings:
+      normalize: false
+      hidden_units: 128
+      num_layers: 2
+    reward_signals:
+      extrinsic:
+        gamma: 0.99
+        strength: 1.0
+    max_steps: 500000
+    time_horizon: 64
+    summary_freq: 12000
+---
+적용
+---
+public class DifficultyRecommender : MonoBehaviour
+{
+    public DifficultyAgent agent;
+
+    public float RecommendDifficulty()
+    {
+        // This will use the trained policy to recommend a difficulty
+        agent.RequestDecision();
+        return agent.currentDifficulty;
+    }
+}
+---
+
+설명
+---
+1. Initial Setup
+a. Unity Environment
+
+Unity Project: You have a Unity project set up for a rhythm game.
+ML-Agents Toolkit: Unity's ML-Agents toolkit is integrated into the project, allowing for reinforcement learning (RL) to be used.
+b. Game Components
+
+RhythmGameManager: Manages the overall game state, including loading songs, setting difficulty, and simulating player performance.
+AudioAnalysisLoader: Analyzes audio files to extract features like tempo and beat times.
+RhythmGameNoteGenerator: Generates game notes based on the audio analysis.
+
+2. Agent Definition
+a. DifficultyAgent Class
+
+Inherits from Agent: The DifficultyAgent class inherits from the Agent class provided by ML-Agents.
+Purpose: This agent will learn to adjust the difficulty of the rhythm game to provide an optimal challenge for players.
+b. Key Methods
+
+OnEpisodeBegin: Resets the game state and sets the initial difficulty at the start of each training episode.
+CollectObservations: Collects observations (features) from the game environment, such as tempo, note density, and rhythm complexity.
+OnActionReceived: Receives actions from the agent (adjustments to difficulty), applies them, simulates player performance, and calculates rewards.
+Heuristic: Provides a manual control option for testing (optional).
+CalculateReward: Calculates the reward based on how well the difficulty matches the player’s skill level.
+
+3. Training Configuration
+a. YAML Configuration
+
+Trainer Type: Specifies the use of the PPO algorithm.
+Hyperparameters: Defines the training parameters such as batch size, buffer size, learning rate, and others.
+Network Settings: Configures the neural network used by the agent, including the number of hidden units and layers.
+Reward Signals: Specifies the reward signals, with a gamma of 0.99 and strength of 1.0.
+Training Steps: Defines the maximum training steps and summary frequency for logging progress.
+
+4. Training Process
+a. Data Collection
+
+Episodes: Each training episode begins by resetting the game state and loading a new song.
+Observations: The agent collects observations about the current game state, including features from audio analysis and note generation.
+b. Action and Reward
+
+Action: The agent makes decisions to adjust the game difficulty.
+Simulation: The game simulates player performance based on the current difficulty.
+Reward Calculation: The agent receives a reward based on how well the difficulty matches an optimal player performance level.
+c. Learning
+
+Policy Update: The agent updates its policy based on the collected data and received rewards, aiming to improve its performance over time.
+Logging: Training progress is logged at specified intervals for monitoring.
+
+5. Using the Trained Agent
+a. DifficultyRecommender Class
+
+Purpose: Provides an interface to use the trained DifficultyAgent to recommend game difficulty levels.
+b. Key Method
+
+RecommendDifficulty: Calls the agent’s RequestDecision method to make a difficulty adjustment decision and returns the current difficulty.
+
+6. Integration in the Game
+a. Game Flow
+
+Game Initialization: The game initializes the DifficultyAgent and DifficultyRecommender.
+Recommendation Request: When a difficulty recommendation is needed, the game calls RecommendDifficulty.
+Difficulty Adjustment: The DifficultyAgent processes the request and updates the difficulty level.
+Gameplay: The game proceeds with the recommended difficulty, aiming to provide an optimal challenge based on the player's performance.
+---
